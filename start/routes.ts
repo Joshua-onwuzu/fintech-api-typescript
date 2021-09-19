@@ -18,6 +18,21 @@
 |
 */
 
-import Route from '@ioc:Adonis/Core/Route'
+import Route from '@ioc:Adonis/Core/Route';
+import ngrok from 'ngrok';
 
-Route.post('/create-user', 'UsersController.index')
+const connectNgrok = async ()=>{
+    const url = await ngrok.connect(3333);
+    console.log(url)
+}
+
+
+Route.post('/create-user', 'UsersController.index');
+
+Route.post('/fund/:userId', 'UsersController.fund');
+
+Route.post('/transfer/:userId', 'UsersController.transfer');
+
+Route.post('/add-beneficiary/:userId', 'UsersController.beneficiary');
+
+Route.post('/withdrawal/:userId', 'UsersController.withdrawal')

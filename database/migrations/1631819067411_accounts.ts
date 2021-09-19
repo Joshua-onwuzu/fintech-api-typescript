@@ -8,8 +8,8 @@ export default class Accounts extends BaseSchema {
       table.increments('id');
       table.string('email');
       table.string('name');
-      table.integer('account_number');
-      table.string('account_name');
+      table.string('account_number');
+      table.string('bank');
       table.integer('account_balance');
       table.string('password');
       

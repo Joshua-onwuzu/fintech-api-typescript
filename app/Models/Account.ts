@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column } from '@ioc:Adonis/Lucid/Orm'
+import { BaseModel, column} from '@ioc:Adonis/Lucid/Orm'
 
 export default class Account extends BaseModel {
   @column({ isPrimary: true })
@@ -12,13 +12,13 @@ export default class Account extends BaseModel {
   public name: string
 
   @column()
-  public account_number: number
+  public account_number: string
 
   @column()
-  public account_name: string
+  public bank: string
 
   @column()
-  public account_balance: string
+  public account_balance: number
 
   @column()
   public password: string
