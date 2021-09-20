@@ -1,8 +1,7 @@
 import { HttpContextContract } from '@ioc:Adonis/Core/HttpContext';
 import Hash from '@ioc:Adonis/Core/Hash';
 import Account from 'App/Models/Account';
-import forge from 'node-forge';
-import axios from 'axios';
+import {paystackFundHandler, paystackTransferHandler} from './paystackHandler/paystackHandler';
 
 
 
@@ -81,10 +80,7 @@ export default class UsersController {
                 const id = await Account.find(params.userId);
                 if (id !== null){
                     const userEmail = id?.$original.email;
-                    const headers = {
-                        'Authorization' : 'Bearer sk_test_06369f111627527b9733d9b46ee3748ba926bd15',
-                        'Content-Type': 'application/json'
-                    };
+
                     const bankDetail = {
                         email : userEmail,
                         amount : amount,
@@ -95,53 +91,24 @@ export default class UsersController {
                         birthday: "1995-12-23"
                     }
 
-                    try {
-                        const paystackResponse = await axios.post('https://api.paystack.co/charge',bankDetail,{headers});
+                    const paystack = await paystackFundHandler(bankDetail,otp)
 
-                        if (paystackResponse.data.status === true){
-                            const trx_ref = paystackResponse.data.data.reference;
-                            const submitOtp =  {
-                                otp : otp,
-                                reference : trx_ref
-                            }
-    
-                            const otpResponse = await axios.post('https://api.paystack.co/charge/submit_otp', submitOtp, {headers});
-                            console.log(otpResponse);
-    
-                            const finalResponse = await axios.post('https://api.paystack.co/charge/submit_otp', submitOtp, {headers});
-    
-                            if(finalResponse.data.data.gateway_response){
-                                console.log(finalResponse.data);
-                                
-                                const fundedAmount = finalResponse.data.data.amount ;
-                                const fundedEmail = finalResponse.data.data.customer.email ;
-                                const acctBalance = id?.$original.account_balance
-                                const newBalance = parseInt(acctBalance) + parseInt(fundedAmount) 
-
-                                await id.merge({account_balance : newBalance}).save()
-                                
-                                response.status(200);
-                                return {
-                                    status : "success",
-                                    amount : fundedAmount,
-                                    email : fundedEmail,
-                                    message : "successfully funded your account"
-                                }
-                            }
-                            
-                        }else {
-                            response.status(400)
-                            return {
-                                status : "fail",
-                                message : "invalid bank info"
-                            }
+                    if (paystack){
+                        const fundedAmount = paystack.data.amount ;
+                        const fundedEmail = paystack.data.customer.email ;
+                        
+                        response.status(200);
+                        return {
+                            status : "success",
+                            amount : fundedAmount,
+                            email : fundedEmail,
+                            message : "successfully funded your account"
                         }
-                    }catch (err){
-                        response.status(400);
-
+                    }else {
+                        response.status(400)
                         return {
                             status : "fail",
-                            message : "invalid bank detail, use provided test bank"
+                            message : "invalid bank info"
                         }
                     }
 
@@ -310,66 +277,25 @@ export default class UsersController {
 
                         const userEmail = id?.$original.email ;
     
-                        if (userAccount){
-                            
-                            const userData = {
-                               type : "nuban",
-                               name : userName,
-                               account_number : userAccount,
-                               bank_code : userBank,
-                               currency : "NGN"
-                            }
-                            
-                            
-                            const headers = {
-                                'Authorization' : 'Bearer sk_test_06369f111627527b9733d9b46ee3748ba926bd15',
-                                'Content-Type': 'application/json'
-                            };
-    
-                            
-                            try{
-                                const paystackResponse = await axios.post('https://api.paystack.co/transferrecipient',userData,{headers});
-                                
-                                const recipientId = paystackResponse.data.data.recipient_code ;
-                                const transferData = {
-                                    source: "balance", 
-                                    reason: "withdrawal", 
-                                    amount : amount, 
-                                    recipient : recipientId
-        
-                                }
-                                try {
-                                    await axios.post('https://api.paystack.co/transfer',transferData,{headers});
-    
-                                    const newBalance = parseInt(userBalance) - parseInt(amount) ;
+                        if (userAccount !== null){
+                            const paystack = await paystackTransferHandler(userName, userAccount,userBank, amount);
 
-                                    await id.merge({account_balance : newBalance}).save();
-
-                                    response.status(200);
-                                    return {
-                                        status : "success",
-                                        account : userAccount,
-                                        email : userEmail,
-                                        message : "successful withdrawal"
-                                    }
-                                    
-                                } catch (err) {
-                                    response.status(500);
-                                    return {
-                                        status : "fail",
-                                        message : "withdrawal not successful"
-                                    }
-                                }
-
-                            } catch (err){
-                                response.status(400);
+                            if(paystack){
                                 return {
+                                    status : "success",
+                                    account : userAccount,
+                                    email : userEmail,
+                                    amount : amount,
+                                    message : "transaction pending"
+                                }
+                            } else{
+                                response.status(400);
+                                return{
                                     status : "fail",
-                                    message : "could not validate account. add test account as beneficiary"
+                                    message : "could not resolve account"
                                 }
                             }
-                            
-    
+
                         } else {
                             response.status(400);
                             return {
@@ -407,5 +333,45 @@ export default class UsersController {
                 message : "user not found"
             }
         }
+    }
+
+    public async notification ({request,response}: HttpContextContract){
+        const event = request.body().event
+
+        if(event == "transfer.success"){
+            const userName = request.body().data.recipient.name
+            const amount = request.body().data.amount
+            const userData = await Account
+            .query()
+            .where('name', userName)
+            .orWhereNull('name')
+            .first();
+            const userBalance =  userData?.$original.account_balance
+             
+            const newBalance = parseInt(userBalance) - parseInt(amount) ;
+
+            await userData?.merge({account_balance : newBalance}).save();
+            response.status(200)
+        }
+
+        if(event == "charge.success"){
+            response.status(200)
+            const userEmail = request.body().data.customer.email
+            console.log(request.body().data);
+            const userData = await Account
+            .query()
+            .where('email', userEmail)
+            .orWhereNull('email')
+            .first();
+            const amount = request.body().data.amount
+
+            const userBalance =  userData?.$original.account_balance ; 
+
+            const newBalance = parseInt(userBalance) + parseInt(amount) ;
+
+            await userData?.merge({account_balance : newBalance}).save();
+
+        }
+        
     }
 }
